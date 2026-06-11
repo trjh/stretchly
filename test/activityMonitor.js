@@ -49,6 +49,83 @@ describe('activityMonitor', function () {
     activityMonitor.currentStrain.should.be.equal(0)
   })
 
+  it('start() is idempotent — repeated starts do not duplicate the hook or interval', () => {
+    // initialize(false) (restore-defaults / remote-settings restore) can call
+    // activityTrigger(true) while the monitor is already running. A second
+    // start() must not re-call uIOhook.start() (potential double-start throw) or
+    // spawn a duplicate tick interval, and must leave the feature enabled.
+    let startCalls = 0
+    let intervalCalls = 0
+    const stub = {
+      start: () => { startCalls++ },
+      stop: () => {},
+      on: () => {},
+      removeAllListeners: () => {}
+    }
+    activityMonitor.isPermitted = () => true
+    // Preset the hook so _startHook() skips its async import() and runs to
+    // completion synchronously within start().
+    activityMonitor.uIOhook = stub
+
+    const realSetInterval = global.setInterval
+    global.setInterval = (...args) => { intervalCalls++; return realSetInterval(...args) }
+    try {
+      activityMonitor.start()
+      activityMonitor.start()
+      activityMonitor.start()
+    } finally {
+      global.setInterval = realSetInterval
+    }
+
+    startCalls.should.be.equal(1)
+    intervalCalls.should.be.equal(1)
+    activityMonitor.hookStarted.should.be.equal(true)
+    activityMonitor.usingActivityTrigger.should.be.equal(true)
+  })
+
+  it('does not double-start across a stop/start race while the hook import is in flight', async () => {
+    // Reproduces the stop()+start() race: start() begins loading the optional
+    // native module, stop() then start() fire before the import resolves. Both
+    // _startHook() continuations resume against a now-enabled monitor; only the
+    // latest (current-token) one may bind/start. We must end with exactly one
+    // native start() and one tick interval.
+    let startCalls = 0
+    let intervalCalls = 0
+    const stub = {
+      start: () => { startCalls++ },
+      stop: () => {},
+      on: () => {},
+      removeAllListeners: () => {}
+    }
+    activityMonitor.isPermitted = () => true
+
+    // Control exactly when the (simulated) module import resolves, and leave
+    // uIOhook unset so both starts go through the async load path.
+    let resolveLoad
+    const loadPromise = new Promise((resolve) => { resolveLoad = resolve })
+    activityMonitor._loadHook = () => loadPromise
+
+    const realSetInterval = global.setInterval
+    global.setInterval = (...args) => { intervalCalls++; return realSetInterval(...args) }
+    try {
+      activityMonitor.start() // attempt #1 — awaits the pending import
+      activityMonitor.stop() // cancels #1 (bumps the start token)
+      activityMonitor.start() // attempt #2 — also awaits the pending import
+      resolveLoad(stub) // both continuations now resume
+      await loadPromise
+      // flush the chained _startHook() continuations
+      await Promise.resolve()
+      await Promise.resolve()
+    } finally {
+      global.setInterval = realSetInterval
+    }
+
+    startCalls.should.be.equal(1)
+    intervalCalls.should.be.equal(1)
+    activityMonitor.hookStarted.should.be.equal(true)
+    activityMonitor.usingActivityTrigger.should.be.equal(true)
+  })
+
   it('accumulates weighted strain from keys and clicks', () => {
     settings.set('activityKeyWeight', 1)
     settings.set('activityClickWeight', 2)

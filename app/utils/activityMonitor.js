@@ -29,6 +29,14 @@ class ActivityMonitor extends EventEmitter {
     this.usingActivityTrigger = false
     this.uIOhook = null
     this.hookStarted = false
+    // True while an async _startHook() is in flight (module import + native
+    // start). Together with hookStarted this makes start() idempotent.
+    this._starting = false
+    // Monotonic start-attempt token. Bumped by every start() and stop(); a
+    // _startHook() continuation that resumes after the async module import
+    // checks it to detect that a stop()+start() race superseded it, so the
+    // native hook/tick interval can never be double-started.
+    this._startToken = 0
     this.timer = null
 
     // strain accumulator state
@@ -71,6 +79,14 @@ class ActivityMonitor extends EventEmitter {
   }
 
   start () {
+    // Idempotent. initialize(false) (restore-defaults / remote-settings
+    // restore) calls activityTrigger(true) even when we're already running; a
+    // second start() must NOT rebind listeners, re-call uIOhook.start(), or
+    // spawn a duplicate tick interval — any of which would corrupt state or
+    // disable the feature. If the hook is already active (or a start is in
+    // flight), do nothing and leave the running monitor untouched.
+    if (this.hookStarted || this._starting) return
+
     this.usingActivityTrigger = true
     this.strain = 0
     this._lastMouse = null
@@ -86,23 +102,43 @@ class ActivityMonitor extends EventEmitter {
     // Load + start the native hook asynchronously. uiohook-napi is an optional
     // dependency loaded via dynamic import() (this is ESM), so a missing module
     // degrades gracefully instead of throwing at module-eval time.
-    this._startHook()
+    this._starting = true
+    this._startHook(++this._startToken)
   }
 
-  async _startHook () {
+  // Loads the optional native hook module. Extracted so tests can control the
+  // in-flight timing of the async import deterministically.
+  async _loadHook () {
+    const mod = await import('uiohook-napi')
+    return mod.uIOhook ?? mod.default?.uIOhook
+  }
+
+  async _startHook (token) {
     if (!this.uIOhook) {
       try {
-        const mod = await import('uiohook-napi')
-        this.uIOhook = mod.uIOhook ?? mod.default?.uIOhook
+        this.uIOhook = await this._loadHook()
       } catch (e) {
         log.warn(`Stretchly: ActivityMonitor could not load uiohook-napi: ${e.message}`)
-        this.usingActivityTrigger = false
+        // Only the current attempt may mutate shared state; a stale
+        // continuation must not clobber a newer start()'s flags.
+        if (token === this._startToken) {
+          this.usingActivityTrigger = false
+          this._starting = false
+        }
         return
       }
     }
 
-    // The user may have toggled the feature off while the module was loading.
-    if (!this.usingActivityTrigger) return
+    // Stale-continuation guard. A stop() (or a newer start()) since this call was
+    // launched bumped _startToken; if ours no longer matches, the feature was
+    // toggled off, or the hook is already running, we must NOT bind/start again
+    // — otherwise a stop()+start() race during the async import() above could
+    // double-start the native hook or spawn a duplicate tick interval. Leave
+    // _starting for the current owner to manage when we're stale.
+    if (token !== this._startToken || !this.usingActivityTrigger || this.hookStarted) {
+      if (token === this._startToken) this._starting = false
+      return
+    }
 
     this._bindHook()
     try {
@@ -114,14 +150,19 @@ class ActivityMonitor extends EventEmitter {
       // catch only covers ordinary JS throws (e.g. double-start).
       log.warn(`Stretchly: ActivityMonitor uIOhook.start() failed: ${e.message}`)
       this.usingActivityTrigger = false
+      this._starting = false
       return
     }
 
     this.timer = setInterval(() => this._tick(), 1000)
+    this._starting = false
   }
 
   stop () {
     this.usingActivityTrigger = false
+    this._starting = false
+    // Invalidate any in-flight _startHook() continuation (see _startHook).
+    this._startToken++
     clearInterval(this.timer)
     this.timer = null
     this.strain = 0

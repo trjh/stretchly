@@ -36,6 +36,16 @@ export default {
   ideas: true,
   naturalBreaks: true,
   naturalBreaksInactivityResetTime: 300000,
+  // Activity-based (RSIGuard-style) break trigger. Off by default; requires the
+  // optional uiohook-napi global input hook and, on macOS, Input Monitoring /
+  // Accessibility permission granted to Stretchly.
+  activityTrigger: false,
+  activityThreshold: 6000,
+  activityKeyWeight: 1,
+  activityClickWeight: 2,
+  activityMoveWeight: 1,
+  activityIdleResetTime: 30000,
+  activityDecayPerSecond: 0.1,
   allScreens: true,
   useIdeasFromSettings: false,
   language: 'en',

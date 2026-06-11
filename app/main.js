@@ -362,11 +362,16 @@ async function initialize (isAppStart = true) {
     breakPlanner.on('updateToolTip', function () {
       updateTray()
     })
+    breakPlanner.activityMonitor.on('permissionRequired', () => {
+      promptActivityPermission()
+    })
+    breakPlanner.activityTrigger(settings.get('activityTrigger'))
   } else {
     breakPlanner.clear()
     breakPlanner.appExclusionsManager.reinitialize(settings)
     breakPlanner.doNotDisturb(settings.get('monitorDnd'))
     breakPlanner.naturalBreaks(settings.get('naturalBreaks'))
+    breakPlanner.activityTrigger(settings.get('activityTrigger'))
     breakPlanner.nextBreak()
   }
 
@@ -1532,6 +1537,78 @@ function showNotification (text) {
   )
 }
 
+// macOS Input Monitoring deep-link. libuiohook needs the host process to hold
+// Input Monitoring (it surfaces under that TCC bucket, even though the abort
+// message says "Accessibility API"). On other platforms there's no equivalent
+// pane to open, so this is darwin-only.
+const INPUT_MONITORING_PANE = 'x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent'
+let activityPermissionPromptOpen = false
+let activityPermissionRecheckInterval = null
+
+// Shown when the user has the activity trigger enabled but the OS hasn't granted
+// Input Monitoring. Explains why, deep-links to the right System Settings pane,
+// and (since macOS requires a relaunch after granting to the running process)
+// tells the user to restart Stretchly. While dormant the wall-clock timer keeps
+// working untouched. We also start a light re-check so that if the permission is
+// granted without restart (it can take effect on app focus), we activate.
+function promptActivityPermission () {
+  startActivityPermissionRecheck()
+  if (activityPermissionPromptOpen) return
+  if (process.platform !== 'darwin') return
+  activityPermissionPromptOpen = true
+  const dialogOpts = {
+    type: 'info',
+    title: 'Stretchly',
+    message: i18next.t('main.activityPermission.message'),
+    detail: i18next.t('main.activityPermission.detail'),
+    buttons: [
+      i18next.t('main.activityPermission.openSettings'),
+      i18next.t('main.activityPermission.later')
+    ],
+    defaultId: 0,
+    cancelId: 1
+  }
+  dialog.showMessageBox(dialogOpts).then(async (returnValue) => {
+    if (returnValue.response === 0) {
+      try {
+        await shell.openExternal(INPUT_MONITORING_PANE)
+      } catch (error) {
+        log.error(error)
+      }
+    }
+  }).catch((error) => {
+    log.error(error)
+  }).finally(() => {
+    activityPermissionPromptOpen = false
+  })
+}
+
+// Poll until the OS reports the permission is granted, then (re)start the hook
+// without requiring a manual restart when feasible. Stops itself once granted
+// or once the user disables the feature.
+function startActivityPermissionRecheck () {
+  if (activityPermissionRecheckInterval) return
+  if (process.platform !== 'darwin') return
+  activityPermissionRecheckInterval = setInterval(() => {
+    if (!breakPlanner || !settings.get('activityTrigger')) {
+      clearInterval(activityPermissionRecheckInterval)
+      activityPermissionRecheckInterval = null
+      return
+    }
+    if (breakPlanner.activityMonitor.hookStarted) {
+      clearInterval(activityPermissionRecheckInterval)
+      activityPermissionRecheckInterval = null
+      return
+    }
+    if (breakPlanner.activityMonitor.isPermitted()) {
+      log.info('Stretchly: Input Monitoring now granted, starting activity monitor')
+      clearInterval(activityPermissionRecheckInterval)
+      activityPermissionRecheckInterval = null
+      breakPlanner.activityTrigger(true)
+    }
+  }, 5000)
+}
+
 ipcMain.on('postpone-mini-break', function (event) {
   log.info('Stretchly: postpone button clicked during Mini break')
   postponeMicrobreak()
@@ -1565,6 +1642,10 @@ ipcMain.on('finish-long-break', function (event, shouldPlaySound, manualAwaiting
 ipcMain.on('save-setting', function (event, key, value) {
   if (key === 'naturalBreaks') {
     breakPlanner.naturalBreaks(value)
+  }
+
+  if (key === 'activityTrigger') {
+    breakPlanner.activityTrigger(value)
   }
 
   if (key === 'monitorDnd') {
@@ -1743,6 +1824,14 @@ ipcMain.handle('i18next-dir', (event) => {
 
 ipcMain.handle('settings-get', (event, key) => {
   return settings.get(key)
+})
+
+// Lets the preferences window reflect the activity-trigger permission state.
+// Returns one of: 'not-applicable' (non-macOS, no OS gate), 'granted', or
+// 'denied' (toggle can be on but the feature is dormant until granted).
+ipcMain.handle('get-activity-permission', (event) => {
+  if (process.platform !== 'darwin') return 'not-applicable'
+  return breakPlanner.activityMonitor.isPermitted() ? 'granted' : 'denied'
 })
 
 ipcMain.on('close-current-window', (event) => {

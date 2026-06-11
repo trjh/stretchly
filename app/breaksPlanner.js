@@ -1,6 +1,7 @@
 import Scheduler from './utils/scheduler.js'
 import EventEmitter from 'events'
 import NaturalBreaksManager from './utils/naturalBreaksManager.js'
+import ActivityMonitor from './utils/activityMonitor.js'
 import DndManager from './utils/dndManager.js'
 import AppExclusionsManager from './utils/appExclusionsManager.js'
 import log from 'electron-log/main.js'
@@ -14,8 +15,29 @@ class BreaksPlanner extends EventEmitter {
     this.scheduler = null
     this.isPaused = false
     this.naturalBreaksManager = new NaturalBreaksManager(settings)
+    this.activityMonitor = new ActivityMonitor(settings)
     this.dndManager = new DndManager(settings)
     this.appExclusionsManager = new AppExclusionsManager(settings)
+
+    // Activity-based (RSIGuard-style) trigger, runs alongside the wall-clock
+    // timer. When accumulated strain crosses the threshold we skip straight to
+    // the next scheduled break — but only while breaks are scheduled normally
+    // (not paused, not already in a break, not idle/DND/excluded). This is a
+    // max-of-both: whichever of (timer, strain) fires first wins.
+    this.activityMonitor.on('activityThresholdReached', () => {
+      if (this.isPaused) return
+      const ref = this.scheduler ? this.scheduler.reference : null
+      if (ref === 'finishMicrobreak' || ref === 'finishBreak') return
+      if (this.dndManager.isOnDnd) return
+      if (this.naturalBreaksManager.isSchedulerCleared) return
+      if (this.appExclusionsManager.isSchedulerCleared) return
+      log.info('Stretchly: activity threshold reached, skipping to next break')
+      if (this._scheduledBreakType === 'break') {
+        this.skipToBreak()
+      } else {
+        this.skipToMicrobreak()
+      }
+    })
 
     this.on('microbreakStarted', (shouldPlaySound) => {
       const interval = this.settings.get('microbreakDuration')
@@ -257,6 +279,14 @@ class BreaksPlanner extends EventEmitter {
       this.naturalBreaksManager.start()
     } else {
       this.naturalBreaksManager.stop()
+    }
+  }
+
+  activityTrigger (shouldUse) {
+    if (shouldUse) {
+      this.activityMonitor.start()
+    } else {
+      this.activityMonitor.stop()
     }
   }
 

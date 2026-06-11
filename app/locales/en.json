@@ -23,7 +23,13 @@
     "cancel": "Cancel",
     "preferences": "Preferences",
     "contributorPreferences": "Contributor Preferences",
-    "syncPreferences": "Sync Preferences"
+    "syncPreferences": "Sync Preferences",
+    "activityPermission": {
+      "message": "Stretchly needs Input Monitoring permission",
+      "detail": "Activity-based breaks count your real keyboard and mouse use. macOS requires you to grant Stretchly the \"Input Monitoring\" permission for this. Click \"Open System Settings\", enable Stretchly under Privacy & Security → Input Monitoring, then quit and reopen Stretchly. Until then, only the regular timer is used.",
+      "openSettings": "Open System Settings",
+      "later": "Later"
+    }
   },
   "break": {
     "postpone": "Postpone this break",
@@ -49,6 +55,9 @@
       "allScreens": "Shows breaks on all monitors",
       "monitorIdleTime": "Monitor system idle time (breaks are paused if system is idle).",
       "monitorDnd": "Show breaks even in Do Not Disturb mode",
+      "activityTrigger": "Trigger breaks based on activity (counts real keyboard & mouse use, in addition to the timer).",
+      "activityThreshold": "Activity sensitivity (lower = breaks sooner):",
+      "activityPermissionRequired": "Input Monitoring permission is required for activity tracking. Stretchly will ask for it when you enable this; until granted, only the timer is used.",
       "language": "Select language:",
       "restoreDefaults": "Restore defaults"
     },

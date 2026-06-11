@@ -188,6 +188,29 @@ window.onload = async (e) => {
     }
   })
 
+  // Activity trigger: surface the macOS Input Monitoring permission state next
+  // to the toggle, so the user understands when the feature is enabled but
+  // dormant (waiting on the OS grant).
+  const activityTriggerCheckbox = document.querySelector('#activityTrigger')
+  const activityPermissionStatus = document.querySelector('#activityPermissionStatus')
+  if (activityTriggerCheckbox && activityPermissionStatus) {
+    const refreshActivityPermissionStatus = async () => {
+      const permission = await window.stretchly.getActivityPermission()
+      const needsAttention = activityTriggerCheckbox.checked && permission === 'denied'
+      activityPermissionStatus.classList.toggle('hidden', !needsAttention)
+      setWindowHeight()
+    }
+    refreshActivityPermissionStatus()
+    activityTriggerCheckbox.addEventListener('change', () => {
+      // saveSettings already fired via the generic checkbox handler; re-check a
+      // beat later so the main process has (re)evaluated permission/start.
+      setTimeout(refreshActivityPermissionStatus, 300)
+    })
+    // Re-check when the window regains focus (e.g. user came back from System
+    // Settings after granting), so the warning clears without reopening prefs.
+    window.addEventListener('focus', refreshActivityPermissionStatus)
+  }
+
   document.querySelectorAll('input[type="radio"]').forEach(radio => {
     let value
     switch (radio.value) {

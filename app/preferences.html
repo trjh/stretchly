@@ -78,6 +78,27 @@
       <label data-i18next="preferences.settings.monitorDnd" for="monitorDnd"></label>
     </div>
     <div>
+      <input type="checkbox" value="activityTrigger" id="activityTrigger">
+      <label data-i18next="preferences.settings.activityTrigger" for="activityTrigger"></label>
+    </div>
+    <div id="activityPermissionStatus" class="hidden">
+      <p data-i18next="preferences.settings.activityPermissionRequired"></p>
+    </div>
+    <div>
+      <label data-i18next="preferences.settings.activityThreshold" data-same-width-label
+        for="activityThreshold"></label>
+      <input type="range" min="500" max="20000" step="500" list="tickmarksActivityThreshold"
+        name="activityThreshold" data-divisor="1" id="activityThreshold">
+      <datalist id="tickmarksActivityThreshold">
+        <option value="2000"></option>
+        <option value="6000"></option>
+        <option value="10000"></option>
+        <option value="14000"></option>
+        <option value="18000"></option>
+      </datalist>
+      <output data-unit="none"></output>
+    </div>
+    <div>
       <hr />
     </div>
     <div>

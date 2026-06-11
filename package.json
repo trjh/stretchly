@@ -68,8 +68,10 @@
       ],
       "extendInfo": {
         "LSBackgroundOnly": 1,
-        "LSUIElement": 1
-      }
+        "LSUIElement": 1,
+        "NSInputMonitoringUsageDescription": "Stretchly can count your real keyboard and mouse activity to trigger breaks based on actual strain. This is optional and off by default."
+      },
+      "asarUnpack": "node_modules/uiohook-napi/**"
     },
     "linux": {
       "category": "Utility",
@@ -162,5 +164,8 @@
     "ps-list": "^9.0.0",
     "semver": "^7.7.4",
     "windows-focus-assist": "^1.4.0"
+  },
+  "optionalDependencies": {
+    "uiohook-napi": "^1.5.5"
   }
 }

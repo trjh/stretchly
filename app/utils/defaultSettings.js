@@ -19,7 +19,9 @@ export default {
   microbreakPostpone: true,
   breakPostpone: true,
   microbreakPostponeTime: 120000,
-  breakPostponeTime: 300000,
+  // Long-break postpone preset: +10 min (RSIGuard-style). Upstream default is
+  // 300000 (+5 min); not exposed in the preferences UI, so changed here.
+  breakPostponeTime: 600000,
   microbreakPostponesLimit: 1,
   microbreakPostponableDurationPercent: 30,
   breakPostponesLimit: 1,
